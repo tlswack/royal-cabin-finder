@@ -211,6 +211,7 @@ if (!window.__fcf) {
   window.__fcf = {
     async run(cmd, payload) {
       if (cmd === 'filters') return filters();
+      payload = payload || {};
       if (cmd === 'count') { const r = await sailings(payload.filters || {}); return { sailings: r.list.length, itineraries: r.itins }; }
       if (cmd === 'scan') { scan(payload); return { started: true }; }
     },

@@ -35,7 +35,7 @@ async function runInRoyal(command, payload) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
     func: (command, payload) => window.__fcf.run(command, payload),
-    args: [command, payload],
+    args: [command, payload === undefined ? null : payload],
   });
   return res && res.result;
 }
