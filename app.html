@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Cabin Finder</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Family Cabin Finder</h1>
+      <p class="muted">Find Royal Caribbean sailings with a room that sleeps your whole family, or connecting rooms you can book together.</p>
+    </div>
+    <div class="history"><label for="history">Past scans</label><select id="history"><option value="">—</option></select></div>
+  </header>
+
+  <section class="panel" id="search">
+    <div class="row">
+      <fieldset class="party">
+        <legend>Your party</legend>
+        <label>Adults <input id="adults" type="number" min="1" max="8" value="2"></label>
+        <label>Kids (0–12) <input id="kids" type="number" min="0" max="8" value="4"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Sailing dates</legend>
+        <label>From <select id="from"></select></label>
+        <label>Through <select id="to"></select></label>
+      </fieldset>
+      <fieldset>
+        <legend>Nights</legend>
+        <label>Min <input id="nmin" type="number" min="1" max="30" value="3"></label>
+        <label>Max <input id="nmax" type="number" min="1" max="30" value="7"></label>
+      </fieldset>
+    </div>
+    <div class="row pickers">
+      <details class="picker" id="p-dest"><summary>Destinations <span class="sel">Any</span></summary><div class="opts"></div></details>
+      <details class="picker" id="p-port"><summary>Departure ports <span class="sel">Any</span></summary><div class="opts"></div></details>
+      <details class="picker" id="p-ship"><summary>Ships &amp; classes <span class="sel">Any</span></summary><div class="opts"></div></details>
+    </div>
+    <div class="row actions">
+      <label class="grow">Name this scan (optional) <input id="label" type="text" placeholder="e.g. Galveston spring break"></label>
+      <button id="btn-count" class="secondary">Check size</button>
+      <button id="btn-scan" class="primary">Scan</button>
+      <button id="btn-refresh" class="link" title="Reload ports, ships and dates from Royal">Refresh lists</button>
+    </div>
+    <p id="estimate" class="muted"></p>
+  </section>
+
+  <section class="panel" id="progress" hidden>
+    <div class="prog-head"><b id="prog-text">Scanning…</b><button id="btn-cancel" class="secondary">Stop</button></div>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <p class="muted">Scanning runs in a pinned Royal Caribbean tab. Leave that tab open; you can keep using Chrome.</p>
+  </section>
+
+  <p id="error" class="error" hidden></p>
+
+  <section id="results" hidden>
+    <div class="stats" id="stats"></div>
+    <div class="panel controls">
+      <div><div class="lbl">Show</div>
+        <div class="seg" role="group">
+          <button data-mode="any" aria-pressed="true">Either option</button>
+          <button data-mode="fam" aria-pressed="false">One big room</button>
+          <button data-mode="conn" aria-pressed="false">Connecting rooms</button>
+        </div></div>
+      <label>Room type<select id="f-type"><option value="">Any</option><option>Interior</option><option>Ocean view</option><option>Balcony</option><option>Suite</option><option value="nosuite">Anything but suites</option></select></label>
+      <label>Ship class<select id="f-class"><option value="">All</option></select></label>
+      <label>Ship<select id="f-ship"><option value="">All</option></select></label>
+      <label>Port<select id="f-port"><option value="">All</option></select></label>
+      <label>Nights<select id="f-nights"><option value="">Any</option></select></label>
+      <label>Month<select id="f-month"><option value="">Any</option></select></label>
+      <button id="btn-csv" class="secondary">Export CSV</button>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr>
+          <th data-k="date">Sail date</th>
+          <th data-k="ship">Ship &amp; itinerary</th>
+          <th data-k="classRank">Class</th>
+          <th data-k="nights">Nights</th>
+          <th data-k="famBest">Cheapest big room</th>
+          <th>Big rooms open</th>
+          <th data-k="connBest">2 connecting rooms</th>
+          <th>Connecting detail</th>
+          <th>Book</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="foot muted" id="foot"></div>
+  </section>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
