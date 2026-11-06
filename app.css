@@ -81,3 +81,28 @@ td:nth-child(2){min-width:210px}
 td a.btn{display:inline-block;white-space:nowrap;font-size:12px;margin:0 0 4px;color:var(--accent)}
 .foot{display:grid;gap:6px;max-width:100ch;margin-top:12px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
+/* Saved scans */
+#saved summary{cursor:pointer;display:flex;align-items:baseline;gap:8px;list-style:none}
+#saved summary::-webkit-details-marker{display:none}
+#saved summary::before{content:"▸";color:var(--muted);font-size:12px}
+#saved[open] summary::before{content:"▾"}
+#saved h2{display:inline;margin:0;font-size:17px}
+#saved-list{display:grid;gap:6px;margin-top:10px;max-height:420px;overflow:auto}
+.si{display:flex;gap:10px 16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--bg)}
+.si.current{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.si-main{flex:1 1 320px;min-width:0}
+.si-name{font-weight:700;background:none;border:0;padding:0;color:var(--ink);text-align:left;cursor:pointer}
+.si-name:hover{color:var(--accent)}
+.si-main input{width:100%}
+.si .sub{margin-top:2px}
+.si-acts{display:flex;flex-wrap:wrap;gap:2px}
+.si-acts button{background:none;border:0;color:var(--accent);padding:4px 7px;font-size:12.5px}
+.si-acts button.danger{color:var(--low)}
+.si-acts button.armed{background:var(--err-bg);color:var(--low);font-weight:700}
+.tag{display:inline-block;font-size:11px;border-radius:4px;padding:0 6px;margin-left:6px;border:1px solid var(--line);color:var(--muted);font-weight:600;vertical-align:1px}
+.tag.run{border-color:var(--accent);color:var(--accent)}
+.tag.warn{border-color:var(--low);color:var(--low)}
+.tag.pin{border-color:var(--fam);color:var(--fam)}
+.saved-foot{margin-top:10px}
+.viewing{font-size:13px;color:var(--muted);margin-bottom:8px}
+.viewing b{color:var(--ink)}

@@ -7,6 +7,14 @@ A personal Chrome extension that searches Royal Caribbean sailings for:
 
 Search by destination, departure port, ship or ship class, month range and trip length. Results can be sorted, filtered by room type (interior, ocean view, balcony, suite) and exported to CSV.
 
+## Saved scans
+
+Every scan is saved automatically while it runs, one sailing at a time, so you can start a long scan, close the finder and come back later. A scan that's stopped, or that's cut off because Chrome or the Royal tab closed, keeps everything it found and shows as "Stopped early" or "Interrupted".
+
+The **Saved scans** list on the finder page lets you open any past scan's full results, reuse its search settings, rename it, pin it, export it or delete it. The newest 30 unpinned scans are kept; pinned scans are never removed automatically.
+
+Scans are stored in this Chrome profile on this computer. To see one on another computer, click **Export** (downloads a `.json` file), then use **Import a scan file** in the finder on the other computer. Imported scans are pinned.
+
 ## Install
 
 1. Download or clone this repo to a folder on your computer.

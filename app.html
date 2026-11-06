@@ -13,7 +13,6 @@
       <h1>Family Cabin Finder</h1>
       <p class="muted">Find Royal Caribbean sailings with a room that sleeps your whole family, or connecting rooms you can book together.</p>
     </div>
-    <div class="history"><label for="history">Past scans</label><select id="history"><option value="">—</option></select></div>
   </header>
 
   <section class="panel" id="search">
@@ -54,9 +53,17 @@
     <p class="muted">Scanning runs in a pinned Royal Caribbean tab. Leave that tab open; you can keep using Chrome.</p>
   </section>
 
+  <details class="panel" id="saved" open>
+    <summary><h2>Saved scans</h2> <span class="muted" id="saved-count"></span></summary>
+    <p class="muted">Every scan saves here automatically as it runs, even if it’s stopped or Chrome closes. The newest 30 are kept; pin one to keep it for good. Use Export to move a scan to your other laptop.</p>
+    <div id="saved-list"></div>
+    <div class="saved-foot"><button id="btn-import" class="secondary">Import a scan file</button><input id="import-file" type="file" accept=".json,application/json" multiple hidden></div>
+  </details>
+
   <p id="error" class="error" hidden></p>
 
   <section id="results" hidden>
+    <div class="viewing" id="viewing"></div>
     <div class="stats" id="stats"></div>
     <div class="panel controls">
       <div><div class="lbl">Show</div>

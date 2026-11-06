@@ -59,6 +59,12 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const { workerTabId, scan } = await chrome.storage.local.get(['workerTabId', 'scan']);
   if (tabId === workerTabId) {
     await chrome.storage.local.remove('workerTabId');
-    if (scan && scan.phase === 'scan') await chrome.storage.local.set({ scan: { ...scan, phase: 'error', error: 'The Royal Caribbean tab was closed, so the scan stopped. Results so far are kept.' } });
+    if (scan && (scan.phase === 'scan' || scan.phase === 'search')) {
+      const error = 'The Royal Caribbean tab was closed, so the scan stopped. Results so far are saved.';
+      const { savedIndex = [] } = await chrome.storage.local.get('savedIndex');
+      const e = savedIndex.find((x) => x.id === scan.id);
+      if (e) { e.phase = 'interrupted'; e.error = error; e.finished = Date.now(); }
+      await chrome.storage.local.set({ scan: { ...scan, phase: 'interrupted', error }, savedIndex });
+    }
   }
 });

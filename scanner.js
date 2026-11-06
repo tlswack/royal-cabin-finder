@@ -214,20 +214,50 @@ if (!window.__fcf) {
     return rooms;
   }
 
+  // Saved scans: one storage key per scan ("scan:<id>") holding its rows, plus a small
+  // "savedIndex" list describing each scan. Rows are saved after every sailing, so a scan
+  // that's stopped, crashes or loses its tab keeps everything it found.
+  const KEEP_UNPINNED = 30;
+  const summarize = (rows) => {
+    let fam = 0, conn = 0, minFam = null, minConn = null;
+    rows.forEach((r) => {
+      if ((r.fam || []).length) { fam++; r.fam.forEach((f) => { if (f.price && (minFam == null || f.price < minFam)) minFam = f.price; }); }
+      if ((r.conn || []).length) { conn++; r.conn.forEach((c) => { if (c.price && (minConn == null || c.price * 2 < minConn)) minConn = c.price * 2; }); }
+    });
+    return { fam, conn, minFam, minConn };
+  };
+
   let running = false;
   async function scan(search) {
     if (running) return { error: 'A scan is already running.' };
     running = true;
     const st = { id: Date.now(), phase: 'search', done: 0, total: 0, label: search.label || '', search, started: Date.now() };
-    const save = () => chrome.storage.local.set({ scan: { ...st } });
+    const key = 'scan:' + st.id;
     const results = [];
-    const saveRes = () => chrome.storage.local.set({ results });
-    await chrome.storage.local.set({ cancel: false, results: [] });
-    save();
+    let gone = false; // the user deleted this scan while it was running
+    const save = () => chrome.storage.local.set({ scan: { ...st, beat: Date.now() } });
+    const saveRows = () => gone ? null : chrome.storage.local.set({ [key]: results });
+    async function saveIndex(first) {
+      if (gone) return;
+      const { savedIndex = [] } = await chrome.storage.local.get('savedIndex');
+      const i = savedIndex.findIndex((x) => x.id === st.id);
+      if (i < 0 && !first) { gone = true; await chrome.storage.local.remove(key); return; }
+      const prog = { phase: st.phase, done: st.done, total: st.total, finished: st.finished || null, error: st.error || null, beat: Date.now(), ...summarize(results) };
+      let list = savedIndex;
+      if (i < 0) {
+        list = [{ id: st.id, label: st.label, search, started: st.started, pinned: false, ...prog }, ...savedIndex];
+        const unpinned = list.filter((x) => !x.pinned).sort((a, b) => b.started - a.started);
+        const drop = new Set(unpinned.slice(KEEP_UNPINNED).map((x) => x.id));
+        if (drop.size) { list = list.filter((x) => !drop.has(x.id)); await chrome.storage.local.remove([...drop].map((id) => 'scan:' + id)); }
+      } else list[i] = { ...list[i], ...prog }; // keeps the user's name and pin
+      await chrome.storage.local.set({ savedIndex: list });
+    }
+    await chrome.storage.local.set({ cancel: false, [key]: [] });
+    await save(); await saveIndex(true);
     try {
       const p = plan(search.party || {});
       const { list } = await sailings(search.filters || {});
-      st.total = list.length; st.phase = 'scan'; save();
+      st.total = list.length; st.phase = 'scan'; await save(); await saveIndex();
       let badPages = 0;
       for (const s of list) {
         if ((await chrome.storage.local.get('cancel')).cancel) { st.phase = 'cancelled'; break; }
@@ -280,8 +310,9 @@ if (!window.__fcf) {
           if (e.fatal) { st.phase = 'error'; st.error = e.fatal; break; }
           row.err = String(e && e.message || e).slice(0, 120);
         }
-        results.push(row); st.done++; save();
-        if (st.done % 5 === 0) await saveRes();
+        results.push(row); st.done++;
+        await saveRows(); await save();
+        if (st.done % 3 === 0) await saveIndex();
         await sleep(500);
       }
       if (st.phase === 'scan') st.phase = 'done';
@@ -289,10 +320,7 @@ if (!window.__fcf) {
       st.phase = 'error'; st.error = String(e && e.message || e);
     }
     st.finished = Date.now();
-    await saveRes(); await save();
-    const { history = [] } = await chrome.storage.local.get('history');
-    history.unshift({ id: st.id, label: st.label, search, finished: st.finished, phase: st.phase, rows: results });
-    await chrome.storage.local.set({ history: history.slice(0, 8) });
+    await saveRows(); await save(); await saveIndex();
     running = false;
     return { ok: true };
   }

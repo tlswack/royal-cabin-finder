@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Family Cabin Finder for Royal Caribbean",
   "short_name": "Cabin Finder",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Search Royal Caribbean sailings for rooms that sleep your whole family and for open connecting rooms.",
   "permissions": ["storage", "unlimitedStorage", "scripting", "tabs"],
   "host_permissions": ["https://www.royalcaribbean.com/*", "https://www.icruise.com/*", "https://m.icruise.com/*"],

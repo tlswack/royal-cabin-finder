@@ -111,8 +111,9 @@ $('#btn-scan').onclick = async () => {
   }
   s.label = s.label || describe(s);
   await store.set({ lastSearch: s });
+  FOLLOW = true;
   const r = await send({ fcf: 'scan', search: s });
-  if (!r.ok) return showError(r.error);
+  if (!r.ok) { FOLLOW = false; return showError(r.error); }
   $('#progress').hidden = false; $('#prog-text').textContent = 'Finding sailings…'; $('#bar-fill').style.width = '0';
 };
 let armed = 0;
@@ -124,32 +125,33 @@ function hideError() { $('#error').hidden = true; }
 
 // ---------- progress + results ----------
 let ROWS = [], META = null, mode = 'any', sortK = 'date', sortDir = 1;
+let INDEX = [], VIEW_ID = null, FOLLOW = false, LIVE_ID = null;
+const STALE_MS = 5 * 60e3; // a running scan that hasn't saved in this long has died (Chrome closed, crash)
+const isRunning = (s) => s && (s.phase === 'search' || s.phase === 'scan') && Date.now() - (s.beat || s.started || 0) < STALE_MS;
+const rowsKey = (id) => 'scan:' + id;
+
 store.onChanged.addListener((ch) => {
   if (ch.scan) onScan(ch.scan.newValue);
-  if (ch.results && META && META.live) loadRows(ch.results.newValue || [], META);
-  if (ch.history) fillHistory(ch.history.newValue || []);
+  if (ch.savedIndex) { INDEX = ch.savedIndex.newValue || []; renderSaved(); }
+  if (VIEW_ID && ch[rowsKey(VIEW_ID)] && LIVE_ID === VIEW_ID) {
+    const e = INDEX.find((x) => x.id === VIEW_ID);
+    loadRows(ch[rowsKey(VIEW_ID)].newValue || [], metaOf(e || META));
+  }
 });
 function onScan(s) {
   if (!s) return;
-  const running = s.phase === 'search' || s.phase === 'scan';
+  const running = isRunning(s);
   $('#progress').hidden = !running;
   $('#btn-scan').disabled = running;
+  LIVE_ID = running ? s.id : null;
   if (running) {
-    $('#prog-text').textContent = s.phase === 'search' ? 'Finding sailings…' : `Checked ${s.done} of ${s.total} sailings`;
+    $('#prog-text').textContent = s.phase === 'search' ? 'Finding sailings…' : `Checked ${s.done} of ${s.total} sailings · saving as it goes`;
     $('#bar-fill').style.width = s.total ? (100 * s.done / s.total) + '%' : '0';
-    META = { live: true, label: s.label, search: s.search, when: s.started };
-  }
-  if (s.phase === 'error') showError(s.error);
-  if (s.phase === 'done' || s.phase === 'cancelled' || s.phase === 'error') store.get('results').then(({ results }) => loadRows(results || [], { label: s.label, search: s.search, when: s.finished, phase: s.phase }));
+    if (FOLLOW && VIEW_ID !== s.id) { FOLLOW = false; openSaved(s.id); }
+  } else if (s.phase === 'error' || s.phase === 'interrupted') { if (s.error && VIEW_ID === s.id) showError(s.error); }
+  if (!running && VIEW_ID === s.id) openSaved(s.id); // final refresh of the scan being viewed
 }
-async function fillHistory(h) {
-  $('#history').innerHTML = '<option value="">—</option>' + h.map((x) => `<option value="${x.id}">${esc((x.label || 'Scan').slice(0, 70))} · ${new Date(x.finished).toLocaleDateString()}</option>`).join('');
-}
-$('#history').onchange = async () => {
-  const { history = [] } = await store.get('history');
-  const h = history.find((x) => String(x.id) === $('#history').value);
-  if (h) loadRows(h.rows, { label: h.label, search: h.search, when: h.finished, phase: h.phase });
-};
+const metaOf = (e) => ({ id: e.id, label: e.label, search: e.search, when: e.finished || e.beat || e.started, started: e.started, phase: e.phase, done: e.done, total: e.total, imported: e.imported });
 
 function loadRows(rows, meta) {
   META = meta;
@@ -166,6 +168,7 @@ function loadRows(rows, meta) {
   fill('#f-month', ROWS.map((r) => r.date.slice(0, 7)), monthName);
   ['#f-class', '#f-ship', '#f-port', '#f-nights', '#f-month'].forEach((s) => { if ([...$(s).options].some((o) => o.value === $(s).dataset.keep)) $(s).value = $(s).dataset.keep; });
   $('#results').hidden = false;
+  VIEW_ID = meta.id; renderSaved(); viewing();
   stats(); render();
 }
 const typeOk = (t) => { const v = $('#f-type').value; return !v || (v === 'nosuite' ? t !== 'Suite' : t === v); };
@@ -213,7 +216,7 @@ function render() {
       <td>${r.urlOne ? `<a class="btn" href="${esc(r.urlOne)}" target="_blank" rel="noopener">Big room ↗</a><br>` : ''}${r.urlTwo ? `<a class="btn" href="${esc(r.urlTwo)}" target="_blank" rel="noopener">2 rooms ↗</a>` : ''}</td>
     </tr>`;
   }).join('');
-  $('#foot').innerHTML = `<div><b>${esc(META.label || '')}</b> · scanned ${new Date(META.when).toLocaleString()}${META.phase === 'cancelled' ? ' (stopped early)' : ''}.</div>
+  $('#foot').innerHTML = `<div><b>${esc(META.label || '')}</b> · ${META.phase === 'search' || META.phase === 'scan' ? 'scan in progress, started ' + new Date(META.started || META.when).toLocaleString() : 'scanned ' + new Date(META.when).toLocaleString()}${PHASE_NOTE[META.phase] || ''}.</div>
     <div><b>Big room</b> prices are Royal’s online total for the first ${Math.min(4, N)} guests in a category that sleeps ${Math.max(N, 5)} or more. Royal won’t book more than 4 per room online, so call to add the rest; the phone quote will be higher.</div>
     <div><b>Room numbers</b> are the open rooms in that category. <b>5+</b> means Royal’s deck plan marks the room for 5 or more guests; rooms Royal marks for 4 or fewer are left out. Royal doesn’t publish whether a 5+ room takes 5 or 6. <b>iCruise</b> is a third-party site’s per-room capacity, shown as a hint: it’s unverified and sometimes wrong. Confirm the exact room by phone.</div>
     <div><b>Connecting</b> prices are two rooms, your party split between them, taxes and fees included. These book online: on Royal’s guest step, add a second room and look for the connecting icon.</div>
@@ -277,12 +280,165 @@ async function kickIc() {
   icRunning = false;
 }
 
+// ---------- saved scans ----------
+const PHASE = { done: ['Complete', ''], cancelled: ['Stopped early', 'warn'], error: ['Stopped (error)', 'warn'], interrupted: ['Interrupted', 'warn'], scan: ['Running', 'run'], search: ['Running', 'run'] };
+const PHASE_NOTE = { cancelled: ' (stopped early)', error: ' (stopped by an error)', interrupted: ' (interrupted; partial results)' };
+const summarize = (rows) => {
+  let fam = 0, conn = 0, minFam = null, minConn = null;
+  rows.forEach((r) => {
+    if ((r.fam || []).length) { fam++; r.fam.forEach((f) => { if (f.price && (minFam == null || f.price < minFam)) minFam = f.price; }); }
+    if ((r.conn || []).length) { conn++; r.conn.forEach((c) => { if (c.price && (minConn == null || c.price * 2 < minConn)) minConn = c.price * 2; }); }
+  });
+  return { fam, conn, minFam, minConn };
+};
+const when = (t) => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+function viewing() {
+  if (!META) return;
+  const e = INDEX.find((x) => x.id === META.id) || META;
+  const [ph] = PHASE[e.phase] || ['', ''];
+  $('#viewing').innerHTML = `Viewing <b>${esc(e.label || 'Scan')}</b> · ${when(e.started || META.when)} · ${ph}${e.total ? ` · ${e.done} of ${e.total} sailings` : ''}`;
+}
+function renderSaved() {
+  const list = INDEX.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.started - a.started);
+  $('#saved-count').textContent = list.length ? `${list.length} saved` : '';
+  if (!list.length) { $('#saved-list').innerHTML = '<p class="muted">No saved scans yet. Run a scan and it will show up here.</p>'; return; }
+  $('#saved-list').innerHTML = list.map((e) => {
+    const [ph, cls] = PHASE[e.phase] || [e.phase, ''];
+    const live = e.id === LIVE_ID;
+    const bits = [when(e.started), e.total ? `${e.done} of ${e.total} sailings` : `${e.done || 0} sailings`];
+    if (e.fam) bits.push(`${e.fam} with a big room, from ${money(e.minFam)}`);
+    if (e.conn) bits.push(`${e.conn} with connecting, from ${money(e.minConn)}`);
+    return `<div class="si${e.id === VIEW_ID ? ' current' : ''}" data-id="${e.id}">
+      <div class="si-main"><button class="si-name" data-act="open" title="Open these results">${esc(e.label || 'Scan')}</button>
+        <span class="tag ${cls}">${live ? 'Running' : ph}</span>${e.pinned ? '<span class="tag pin">Pinned</span>' : ''}${e.imported ? '<span class="tag">Imported</span>' : ''}
+        <div class="sub">${bits.map(esc).join(' · ')}</div></div>
+      <div class="si-acts">
+        <button data-act="open">Open</button>
+        <button data-act="reuse" title="Put this scan’s settings back in the search form">Use settings</button>
+        <button data-act="rename">Rename</button>
+        <button data-act="pin">${e.pinned ? 'Unpin' : 'Pin'}</button>
+        <button data-act="export" title="Download this scan to open on another computer">Export</button>
+        ${live ? '' : '<button data-act="delete" class="danger">Delete</button>'}
+      </div></div>`;
+  }).join('');
+}
+async function openSaved(id) {
+  const e = INDEX.find((x) => x.id === id);
+  if (!e) return;
+  hideError();
+  const rows = (await store.get(rowsKey(id)))[rowsKey(id)] || [];
+  loadRows(rows, metaOf(e));
+  if (e.error && !isRunning(e)) showError(e.error);
+}
+async function updIndex(id, fn) {
+  const { savedIndex = [] } = await store.get('savedIndex');
+  const e = savedIndex.find((x) => x.id === id);
+  if (e) fn(e);
+  await store.set({ savedIndex });
+}
+let delArmed = null;
+$('#saved-list').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-act]'); if (!btn) return;
+  const id = +btn.closest('.si').dataset.id, e = INDEX.find((x) => x.id === id); if (!e) return;
+  const act = btn.dataset.act;
+  if (act === 'open') { await openSaved(id); $('#results').scrollIntoView({ behavior: 'smooth' }); }
+  if (act === 'reuse') { await store.set({ lastSearch: { ...e.search, label: '' } }); await renderForm(); $('#label').value = ''; $('#search').scrollIntoView({ behavior: 'smooth' }); $('#estimate').textContent = `Loaded the settings from “${e.label}”. Change anything you like, then Scan.`; }
+  if (act === 'pin') await updIndex(id, (x) => (x.pinned = !x.pinned));
+  if (act === 'rename') {
+    const main = btn.closest('.si').querySelector('.si-name');
+    const inp = document.createElement('input'); inp.type = 'text'; inp.value = e.label || ''; inp.setAttribute('aria-label', 'Scan name');
+    main.replaceWith(inp); inp.focus(); inp.select();
+    let done = false;
+    const finish = async (keep) => { if (done) return; done = true; const v = inp.value.trim(); if (keep && v && v !== e.label) { await updIndex(id, (x) => (x.label = v)); if (META && META.id === id) { META.label = v; render(); } } else renderSaved(); viewing(); };
+    inp.addEventListener('keydown', (k) => { if (k.key === 'Enter') finish(true); if (k.key === 'Escape') finish(false); });
+    inp.addEventListener('blur', () => finish(true));
+  }
+  if (act === 'export') {
+    const rows = (await store.get(rowsKey(id)))[rowsKey(id)] || [];
+    const { pinned, ...meta } = e;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ type: 'family-cabin-finder-scan', version: 1, meta, rows })], { type: 'application/json' }));
+    a.download = 'cabin-scan-' + (e.label || 'scan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) + '-' + new Date(e.started).toISOString().slice(0, 10) + '.json';
+    a.click();
+  }
+  if (act === 'delete') {
+    if (delArmed !== id) { delArmed = id; btn.textContent = 'Click again to delete'; btn.classList.add('armed'); setTimeout(() => { if (delArmed === id) { delArmed = null; renderSaved(); } }, 5000); return; }
+    delArmed = null;
+    const { savedIndex = [] } = await store.get('savedIndex');
+    await store.set({ savedIndex: savedIndex.filter((x) => x.id !== id) });
+    await store.remove(rowsKey(id));
+    if (VIEW_ID === id) { VIEW_ID = null; META = null; $('#results').hidden = true; hideError(); }
+  }
+});
+$('#btn-import').onclick = () => $('#import-file').click();
+$('#import-file').onchange = async () => {
+  const files = [...$('#import-file').files]; $('#import-file').value = '';
+  let ok = 0, bad = [], last = null;
+  for (const f of files) {
+    try {
+      const d = JSON.parse(await f.text());
+      if (d.type !== 'family-cabin-finder-scan' || !Array.isArray(d.rows) || !d.meta) throw new Error('not a scan file');
+      const { savedIndex = [] } = await store.get('savedIndex');
+      let id = d.meta.id || Date.now();
+      if (savedIndex.some((x) => x.id === id)) { // already here: replace it with the imported copy only if it's the same scan
+        const same = savedIndex.find((x) => x.id === id);
+        if (same.started !== d.meta.started) id = Date.now() + ok;
+      }
+      const phase = d.meta.phase === 'scan' || d.meta.phase === 'search' ? 'interrupted' : d.meta.phase;
+      const entry = { ...d.meta, ...summarize(d.rows), id, phase, done: d.meta.done != null ? d.meta.done : d.rows.length, imported: true, pinned: true };
+      await store.set({ [rowsKey(id)]: d.rows, savedIndex: [entry, ...savedIndex.filter((x) => x.id !== id)] });
+      ok++; last = id;
+    } catch (e) { bad.push(f.name); }
+  }
+  INDEX = (await store.get('savedIndex')).savedIndex || [];
+  if (last) await openSaved(last);
+  if (bad.length) showError(`Couldn’t import ${bad.join(', ')}: not a Cabin Finder scan file.`);
+  else if (ok) $('#estimate').textContent = `Imported ${ok} scan${ok === 1 ? '' : 's'} (pinned so they aren’t auto-removed).`;
+};
+
+// One-time move from the old "Past scans" list (last 8 finished scans) to saved scans.
+async function migrate() {
+  const { history, results, scan, savedIndex } = await store.get(['history', 'results', 'scan', 'savedIndex']);
+  if (!history && !results) return;
+  const idx = savedIndex || [], put = {};
+  (history || []).forEach((h) => {
+    if (idx.some((x) => x.id === h.id)) return;
+    put[rowsKey(h.id)] = h.rows || [];
+    idx.push({ id: h.id, label: h.label, search: h.search, started: h.id, finished: h.finished, phase: h.phase, done: (h.rows || []).length, total: (h.rows || []).length, pinned: false, ...summarize(h.rows || []) });
+  });
+  // a scan that was cut off before it could be saved to the old list
+  if (scan && results && results.length && !idx.some((x) => x.id === scan.id)) {
+    put[rowsKey(scan.id)] = results;
+    idx.push({ id: scan.id, label: scan.label, search: scan.search, started: scan.started, finished: scan.finished || null, phase: scan.phase === 'done' || scan.phase === 'cancelled' ? scan.phase : 'interrupted', done: results.length, total: scan.total, pinned: false, ...summarize(results) });
+  }
+  await store.set({ ...put, savedIndex: idx });
+  await store.remove(['history', 'results']);
+}
+// Marks scans that died without finishing (Chrome closed, crash) as interrupted.
+async function sweepStale() {
+  const { scan, savedIndex = [] } = await store.get(['scan', 'savedIndex']);
+  let changed = false;
+  savedIndex.forEach((e) => {
+    if ((e.phase === 'scan' || e.phase === 'search') && !(scan && scan.id === e.id && isRunning(scan))) {
+      e.phase = 'interrupted'; e.error = 'This scan stopped before finishing (Chrome or the Royal tab closed). Results so far are saved.'; changed = true;
+    }
+  });
+  if (changed) await store.set({ savedIndex });
+  if (scan && (scan.phase === 'scan' || scan.phase === 'search') && !isRunning(scan)) await store.set({ scan: { ...scan, phase: 'interrupted' } });
+  return savedIndex;
+}
+
 // ---------- start ----------
 (async () => {
   IC = (await store.get('icruise')).icruise || {};
   await loadFilters(false);
-  const { scan, results, history = [] } = await store.get(['scan', 'results', 'history']);
-  fillHistory(history);
-  if (scan) { onScan(scan); if (scan.phase === 'scan' || scan.phase === 'search') loadRows(results || [], { live: true, label: scan.label, search: scan.search, when: scan.started }); }
-  else if (history[0]) loadRows(history[0].rows, { label: history[0].label, search: history[0].search, when: history[0].finished, phase: history[0].phase });
+  await migrate();
+  INDEX = await sweepStale();
+  const { scan } = await store.get('scan');
+  onScan(scan);
+  renderSaved();
+  const live = scan && isRunning(scan) && INDEX.find((x) => x.id === scan.id);
+  const newest = INDEX.slice().sort((a, b) => b.started - a.started)[0];
+  if (live) await openSaved(scan.id); else if (newest) await openSaved(newest.id);
+  setInterval(async () => { const { scan } = await store.get('scan'); if (scan && (scan.phase === 'scan' || scan.phase === 'search') && !isRunning(scan)) { INDEX = await sweepStale(); onScan((await store.get('scan')).scan); renderSaved(); } }, 60e3);
 })();
