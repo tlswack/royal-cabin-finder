@@ -175,7 +175,8 @@ if (!window.__fcf) {
     const out = {};
     try {
       const svg = host.querySelector('svg');
-      const ra = svg && svg.querySelector('#ROOM_ATTRIBUTES');
+      // Older ships name the layer ROOM_ATTRIBUTES; Icon class uses ROOMS_ATTRIBUTES_<hash>.
+      const ra = svg && [...svg.querySelectorAll('g[id]')].find((g) => /^ROOMS?_ATTRIBUTES/.test(g.id));
       const leaves = [];
       const walk = (el) => { if (el.tagName === 'g' && el.children.length > 1) [...el.children].forEach(walk); else leaves.push(el); };
       if (ra) [...ra.children].forEach(walk);
@@ -185,9 +186,12 @@ if (!window.__fcf) {
         const ins = icons.filter((i) => i.x >= bb.x && i.x <= bb.x + bb.width && i.y >= bb.y && i.y <= bb.y + bb.height);
         const hLine = ins.some((i) => i.w >= 1.5 && i.h <= 0.35), vLine = ins.some((i) => i.h >= 1.5 && i.w <= 0.35);
         // Only call a room "4" on a clear asterisk; anything ambiguous stays unknown so it is never dropped.
+        // 5+ is either a box drawn from line strokes (older ships) or a solid square badge ~3.3 units (Icon class).
+        const badge = ins.some((i) => i.w >= 2.8 && i.w <= 4 && i.h >= 2.8 && i.h <= 4 && Math.abs(i.w - i.h) < 0.5);
+        const asterisk = ins.some((i) => i.w >= 1.3 && i.w <= 1.95 && i.h >= 1.3 && i.h <= 1.95 && Math.abs(i.w - i.h) < 0.35);
         let occ = '';
-        if (ins.length >= 4 && hLine && vLine) occ = '5+';
-        else if (ins.some((i) => i.w >= 1.3 && i.w <= 1.95 && i.h >= 1.3 && i.h <= 1.95) && !ins.some((i) => i.w >= 2.0 && i.h >= 2.0)) occ = '4';
+        if ((ins.length >= 4 && hLine && vLine) || badge) occ = '5+';
+        else if (asterisk && !ins.some((i) => i.w >= 2.0 && i.h >= 2.0)) occ = '4';
         out[room.id.slice(1)] = occ;
       });
     } finally { host.remove(); }
