@@ -185,7 +185,17 @@ function render() {
   const N = (ROWS[0] && ROWS[0].n) || 6;
   if (!list.length) { $('#rows').innerHTML = `<tr><td colspan="9" class="empty">${ROWS.length ? 'No sailings match these filters.' : 'No sailings found.'}</td></tr>`; return; }
   $('#rows').innerHTML = list.map((r) => {
-    const fam = r.famL.length ? r.famL.map((f) => `<span class="chip fam${f.avail <= 2 ? ' low' : ''}" title="${esc(f.cat)} · sleeps ${f.maxOcc}">${esc(f.name)} <span class="n">${money(f.price)}</span> <span class="n">${f.avail} left</span></span>`).join('') : '<span class="none">None open</span>';
+    const fam = r.famL.length ? r.famL.map((f) => {
+      const left = f.checked ? f.rooms.length : f.avail;
+      const chip = `<span class="chip fam${left <= 2 ? ' low' : ''}" title="${esc(f.cat)} · category sleeps up to ${f.maxOcc}">${esc(f.name)} <span class="n">${money(f.price)}</span> <span class="n">${left} left</span></span>`;
+      if (!f.checked) return chip + `<div class="rooms muted">Room-by-room capacity not checked</div>`;
+      const list = f.rooms.map((x) => {
+        const ic = icLabel(r.ship, x.n, N);
+        return `<span class="room">${esc(x.n)} <span class="occ" title="${x.occ === '5+' ? 'Royal’s deck plan marks this room for 5 or more' : 'Royal’s deck plan has no capacity mark this extension could read'}">${x.occ === '5+' ? '5+' : 'unmarked'}</span>${ic}</span>`;
+      }).join('');
+      const hidden = f.dropped ? `<div class="rooms muted">${f.dropped} more open, but marked for 4 or fewer</div>` : '';
+      return chip + `<div class="rooms">${list}</div>` + hidden;
+    }).join('') : '<span class="none">None open</span>';
     const conn = r.connL.length ? r.connL.map((c) => `<span class="chip conn" title="${esc(c.cat)}">${esc(c.name)} <span class="n">${money(c.price * 2)}</span>${c.avail ? ` <span class="n">${c.avail} left</span>` : ''}</span>`).join('') : '<span class="none">None open</span>';
     const detail = r.connL.some((c) => c.cat === r.pairsCat);
     const decks = detail ? (r.connDecks || []).map((d) => `Deck ${d.deck}: ${d.left}`).join(' · ') : '';
@@ -204,7 +214,8 @@ function render() {
     </tr>`;
   }).join('');
   $('#foot').innerHTML = `<div><b>${esc(META.label || '')}</b> · scanned ${new Date(META.when).toLocaleString()}${META.phase === 'cancelled' ? ' (stopped early)' : ''}.</div>
-    <div><b>Big room</b> prices are Royal’s online total for the first ${Math.min(4, N)} guests in a room that sleeps ${Math.max(N, 5)} or more. Royal won’t book more than 4 per room online, so call to add the rest; the phone quote will be higher.</div>
+    <div><b>Big room</b> prices are Royal’s online total for the first ${Math.min(4, N)} guests in a category that sleeps ${Math.max(N, 5)} or more. Royal won’t book more than 4 per room online, so call to add the rest; the phone quote will be higher.</div>
+    <div><b>Room numbers</b> are the open rooms in that category. <b>5+</b> means Royal’s deck plan marks the room for 5 or more guests; rooms Royal marks for 4 or fewer are left out. Royal doesn’t publish whether a 5+ room takes 5 or 6. <b>iCruise</b> is a third-party site’s per-room capacity, shown as a hint: it’s unverified and sometimes wrong. Confirm the exact room by phone.</div>
     <div><b>Connecting</b> prices are two rooms, your party split between them, taxes and fees included. These book online: on Royal’s guest step, add a second room and look for the connecting icon.</div>
     <div>Availability and prices change daily. Confirm on Royal before booking.</div>`;
 }
@@ -221,8 +232,9 @@ $$('th[data-k]').forEach((th) => (th.onclick = () => { const k = th.dataset.k; i
 
 $('#btn-csv').onclick = () => {
   const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const lines = [['Sail date', 'Ship', 'Class', 'Itinerary', 'Port', 'Nights', 'Cheapest big room', 'Big room type', 'Big rooms open', 'Cheapest connecting pair', 'Connecting type', 'Connecting by deck', 'Connecting pairs'].map(q).join(',')];
-  view().forEach((r) => lines.push([r.date, r.ship, r.shipClass, r.itin, r.port, r.nights, r.famBest ? Math.round(r.famBest) : '', r.famL[0] ? r.famL[0].name : '', r.famL.map((f) => `${f.name} (${f.avail} left)`).join('; '),
+  const lines = [['Sail date', 'Ship', 'Class', 'Itinerary', 'Port', 'Nights', 'Cheapest big room', 'Big room type', 'Big rooms open', 'Big room numbers (Royal mark / iCruise)', 'Cheapest connecting pair', 'Connecting type', 'Connecting by deck', 'Connecting pairs'].map(q).join(',')];
+  view().forEach((r) => lines.push([r.date, r.ship, r.shipClass, r.itin, r.port, r.nights, r.famBest ? Math.round(r.famBest) : '', r.famL[0] ? r.famL[0].name : '', r.famL.map((f) => `${f.name} (${f.checked ? f.rooms.length : f.avail} left)`).join('; '),
+    r.famL.map((f) => (f.rooms || []).map((x) => { const v = IC[icKey(r.ship, x.n)]; return `${x.n} ${x.occ}${v && v.n ? ' / iCruise ' + v.n : ''}`; }).join(', ')).filter(Boolean).join('; '),
     r.connBest ? Math.round(r.connBest) : '', r.connL[0] ? r.connL[0].name : '', (r.connDecks || []).map((d) => `Deck ${d.deck}: ${d.left}`).join('; '), (r.pairs || []).join('; ')].map(q).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
@@ -230,8 +242,44 @@ $('#btn-csv').onclick = () => {
   a.click();
 };
 
+// ---------- iCruise per-room capacity (third-party hint) ----------
+let IC = {}; const icQueue = new Map(); let icRunning = false;
+const shipSlug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const icKey = (ship, n) => shipSlug(ship) + '|' + n;
+function icLabel(ship, n, N) {
+  const v = IC[icKey(ship, n)];
+  if (v === undefined) { icQueue.set(icKey(ship, n), { ship, n }); kickIc(); return '<span class="ic pending" title="Looking up on iCruise">iCruise …</span>'; }
+  if (v === null || v.n == null) return '<span class="ic none" title="iCruise has no capacity for this room">iCruise –</span>';
+  return `<span class="ic ${v.n >= N ? 'ok' : 'short'}" title="iCruise says this room sleeps up to ${v.n} (third-party, unverified)">iCruise ${v.n}</span>`;
+}
+async function icFetch(ship, n) {
+  for (const host of ['https://www.icruise.com', 'https://m.icruise.com']) {
+    try {
+      const r = await fetch(`${host}/cabins/royal-caribbean-cruises-${shipSlug(ship)}-cabin-${encodeURIComponent(n)}.html`, { credentials: 'omit' });
+      if (!r.ok) continue;
+      const m = (await r.text()).match(/accommodate up to\s*(\d+)\s*guests/i);
+      return { n: m ? +m[1] : null, at: Date.now() };
+    } catch (e) { /* try the other host */ }
+  }
+  return null;
+}
+async function kickIc() {
+  if (icRunning) return; icRunning = true;
+  let since = 0;
+  while (icQueue.size) {
+    const [k, job] = icQueue.entries().next().value; icQueue.delete(k);
+    if (IC[k] !== undefined) continue;
+    IC[k] = await icFetch(job.ship, job.n);
+    since++;
+    if (since >= 4 || !icQueue.size) { since = 0; await store.set({ icruise: IC }); render(); }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  icRunning = false;
+}
+
 // ---------- start ----------
 (async () => {
+  IC = (await store.get('icruise')).icruise || {};
   await loadFilters(false);
   const { scan, results, history = [] } = await store.get(['scan', 'results', 'history']);
   fillHistory(history);

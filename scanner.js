@@ -140,6 +140,76 @@ if (!window.__fcf) {
     };
   }
 
+  // ---------- room-level capacity ----------
+  // Royal's JSON rooms endpoint lists open rooms for a category, one deck at a time.
+  async function roomsApi(link, req, deckCode) {
+    const b = new URL(link, location.origin);
+    const filter = {
+      countryCode: 'USA', packageId: b.searchParams.get('packageCode'), sailDate: b.searchParams.get('sailDate'),
+      currencyCode: 'USD', language: 'en', options: true, roomNumbers: true,
+      rooms: [{ ...req, accessible: false, selectionFallbackStrategy: 'RECOMMENDATION', taxesAndFeesBundled: true, ...(deckCode ? { room: { deckCode } } : {}) }],
+    };
+    const r = await fetch('/room-selection/api/v1/rooms?' + new URLSearchParams({ filter: JSON.stringify(filter) }), { credentials: 'include', headers: { brand: 'R', 'content-type': 'application/json', country: 'USA' } });
+    if (!r.ok) throw new Error('rooms ' + r.status);
+    const j = await r.json();
+    const rn = j.rooms && j.rooms[0] && j.rooms[0].roomNumbers;
+    return {
+      decks: (rn && rn.decks) || [],
+      cabins: ((rn && rn.categories) || []).flatMap((c) => c.cabins || []).map((c) => c.cabinNumber),
+    };
+  }
+
+  // Each deck plan (SVG) marks rooms with Royal's capacity icons: triangle = up to 3,
+  // asterisk = up to 4, a boxed "5+" = 5 and up. The box is drawn as separate line strokes.
+  const svgCache = {};
+  async function deckCapacity(url) {
+    if (svgCache[url]) return svgCache[url];
+    const key = 'svgocc:' + url;
+    const stored = (await chrome.storage.local.get(key))[key];
+    if (stored) return (svgCache[url] = stored);
+    const t = await (await fetch(url, { credentials: 'include' })).text();
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-99999px;top:0;width:3000px;height:3000px;visibility:hidden';
+    host.innerHTML = t.replace(/^[\s\S]*?(<svg)/, '$1');
+    document.documentElement.appendChild(host);
+    const out = {};
+    try {
+      const svg = host.querySelector('svg');
+      const ra = svg && svg.querySelector('#ROOM_ATTRIBUTES');
+      const leaves = [];
+      const walk = (el) => { if (el.tagName === 'g' && el.children.length > 1) [...el.children].forEach(walk); else leaves.push(el); };
+      if (ra) [...ra.children].forEach(walk);
+      const icons = leaves.map((el) => { const b = el.getBBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2, w: b.width, h: b.height }; });
+      [...svg.querySelectorAll('[id]')].filter((e) => /^R\d{3,5}$/.test(e.id)).forEach((room) => {
+        const bb = room.getBBox();
+        const ins = icons.filter((i) => i.x >= bb.x && i.x <= bb.x + bb.width && i.y >= bb.y && i.y <= bb.y + bb.height);
+        const hLine = ins.some((i) => i.w >= 1.5 && i.h <= 0.35), vLine = ins.some((i) => i.h >= 1.5 && i.w <= 0.35);
+        // Only call a room "4" on a clear asterisk; anything ambiguous stays unknown so it is never dropped.
+        let occ = '';
+        if (ins.length >= 4 && hLine && vLine) occ = '5+';
+        else if (ins.some((i) => i.w >= 1.3 && i.w <= 1.95 && i.h >= 1.3 && i.h <= 1.95) && !ins.some((i) => i.w >= 2.0 && i.h >= 2.0)) occ = '4';
+        out[room.id.slice(1)] = occ;
+      });
+    } finally { host.remove(); }
+    svgCache[url] = out;
+    await chrome.storage.local.set({ [key]: out });
+    return out;
+  }
+
+  // For a big-room category: every open room on every deck, with Royal's capacity mark.
+  async function openRooms(link, req) {
+    const first = await roomsApi(link, req);
+    const decks = first.decks.length ? first.decks : [{ code: null, selected: true }];
+    const rooms = [];
+    for (const d of decks) {
+      if (d.roomsLeft === 0) continue;
+      const list = d.selected ? first.cabins : (await sleep(250), (await roomsApi(link, req, d.code)).cabins);
+      const occ = d.deckPlanUrl ? await deckCapacity(d.deckPlanUrl).catch(() => ({})) : {};
+      list.forEach((n) => rooms.push({ n, deck: d.number, occ: occ[n] || '?' }));
+    }
+    return rooms;
+  }
+
   let running = false;
   async function scan(search) {
     if (running) return { error: 'A scan is already running.' };
@@ -165,7 +235,22 @@ if (!window.__fcf) {
           const A = subtypes(a.m);
           if (!A.length) { badPages++; row.soldOut = true; } else badPages = 0;
           if (badPages >= 8) throw Object.assign(new Error('format'), { fatal: 'Royal’s booking pages didn’t contain room data for 8 sailings in a row. Their page format may have changed and the extension needs an update.' });
-          row.fam = A.filter((x) => x.maxOcc && x.maxOcc >= Math.max(p.N, 5) && !x.guar && x.avail).map((x) => ({ cls: x.cls, cat: x.cat, name: x.name, maxOcc: x.maxOcc, avail: x.avail, price: x.total }));
+          const famCats = A.filter((x) => x.maxOcc && x.maxOcc >= Math.max(p.N, 5) && !x.guar && x.avail);
+          row.fam = [];
+          for (const x of famCats) {
+            const f = { cls: x.cls, cat: x.cat, name: x.name, maxOcc: x.maxOcc, avail: x.avail, price: x.total };
+            try {
+              await sleep(300);
+              const rooms = await openRooms(s.link, { adultCount: p.one[0], childCount: p.one[1], stateroomTypeCode: x.cls, stateroomSubtypeCode: x.sub, categoryCode: x.cat });
+              if (rooms.length) {
+                f.rooms = rooms.filter((r) => r.occ !== '3' && r.occ !== '4');
+                f.dropped = rooms.length - f.rooms.length;
+                f.checked = true;
+              } else f.checked = false; // nothing came back: keep the category, unverified
+            } catch (e) { f.checked = false; }
+            if (f.checked && !f.rooms.length) { row.famExcluded = (row.famExcluded || 0) + 1; continue; }
+            row.fam.push(f);
+          }
           row.cheapest = A.filter((x) => x.total).reduce((m, x) => Math.min(m, x.total), Infinity);
           if (row.cheapest === Infinity) row.cheapest = null;
           if (p.two && A.length) {
